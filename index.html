@@ -488,6 +488,28 @@ textarea.form-control{resize:vertical;min-height:72px}
   </div>
 </div>
 
+<!-- Editar insumo -->
+<div class="modal-overlay" id="m-edit-ins">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Editar insumo</div>
+    <input type="hidden" id="ei-idx">
+    <div class="form-group"><label class="form-label">Nombre</label><input type="text" class="form-control" id="ei-nombre" placeholder="Ej: Queso blanco"></div>
+    <div class="form-group"><label class="form-label">Cantidad en stock</label>
+      <div style="display:flex;gap:8px">
+        <input type="number" class="form-control" id="ei-stock" placeholder="0" style="flex:1">
+        <input type="text" class="form-control" id="ei-unidad" placeholder="kg/und" style="width:80px">
+      </div>
+    </div>
+    <div class="form-group"><label class="form-label">Stock mínimo (alerta)</label><input type="number" class="form-control" id="ei-minimo" placeholder="0"></div>
+    <div class="form-group"><label class="form-label">Precio de referencia ($)</label><input type="number" class="form-control" id="ei-precio" placeholder="0"></div>
+    <div class="form-group"><label class="form-label">Proveedor / tienda</label><input type="text" class="form-control" id="ei-proveedor" placeholder="Éxito, D1, proveedor..."></div>
+    <button class="btn btn-primary btn-full" onclick="guardarInsumo()">Guardar cambios</button>
+    <button class="btn btn-danger btn-full mt-8" onclick="eliminarInsumo()">🗑 Eliminar insumo</button>
+    <button class="btn btn-outline btn-full mt-8" onclick="closeModal('m-edit-ins')">Cancelar</button>
+  </div>
+</div>
+
 <!-- Iniciar producción -->
 <div class="modal-overlay" id="m-iniciar-prod">
   <div class="modal">
@@ -946,8 +968,9 @@ function renderAlmacen(){
   const lista=almacenTab==='alertas'?ALMACEN.filter(i=>i.stock<i.minimo):ALMACEN;
   const c=document.getElementById('almacen-list');
   if(!lista.length){c.innerHTML=`<div class="empty">${almacenTab==='alertas'?'Sin alertas 🎉':'Almacén vacío. Agrega insumos.'}</div>`;return}
-  c.innerHTML=lista.map((i,idx)=>{
-    const pct=Math.min(100,Math.round(i.stock/i.minimo*100));
+  c.innerHTML=lista.map((i)=>{
+    const realIdx=ALMACEN.indexOf(i);
+    const pct=i.minimo>0?Math.min(100,Math.round(i.stock/i.minimo*100)):100;
     const baja=i.stock<i.minimo;
     return`<div class="insumo-row">
       <div class="insumo-top">
@@ -962,7 +985,7 @@ function renderAlmacen(){
       </div>
       <div class="progress-bar"><div class="progress-fill ${baja?'low':'ok'}" style="width:${pct}%"></div></div>
       <div style="display:flex;gap:8px;margin-top:10px">
-        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="editarStockInsumo(${ALMACEN.indexOf(i)})">✎ Editar stock</button>
+        <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirEditarInsumo(${realIdx})">✎ Editar</button>
         <button class="btn btn-ghost btn-sm" onclick="buscarPrecioWeb('${i.nombre}')">🔍 Precio web</button>
       </div>
     </div>`;
@@ -978,10 +1001,46 @@ function agregarInsumo(){
   saveData();renderAlmacen();refreshIngSel();showToast('✓ Insumo agregado al almacén');
 }
 
-function editarStockInsumo(idx){
+function abrirEditarInsumo(idx){
   const ins=ALMACEN[idx];
-  const nuevo=prompt(`Stock actual de ${ins.nombre} (${ins.unidad}):\nIngresa la nueva cantidad:`,ins.stock);
-  if(nuevo!==null&&!isNaN(parseFloat(nuevo))){ins.stock=parseFloat(nuevo);saveData();renderAlmacen();showToast('Stock actualizado')}
+  document.getElementById('ei-idx').value=idx;
+  document.getElementById('ei-nombre').value=ins.nombre;
+  document.getElementById('ei-stock').value=ins.stock;
+  document.getElementById('ei-unidad').value=ins.unidad;
+  document.getElementById('ei-minimo').value=ins.minimo;
+  document.getElementById('ei-precio').value=ins.precio;
+  document.getElementById('ei-proveedor').value=ins.proveedor||'';
+  openModal('m-edit-ins');
+}
+
+function guardarInsumo(){
+  const idx=parseInt(document.getElementById('ei-idx').value);
+  const ins=ALMACEN[idx];
+  const nombreNuevo=document.getElementById('ei-nombre').value.trim();
+  if(!nombreNuevo){showToast('El nombre no puede estar vacío');return}
+  const nombreAnterior=ins.nombre;
+  ins.nombre=nombreNuevo;
+  ins.stock=parseFloat(document.getElementById('ei-stock').value)||0;
+  ins.unidad=document.getElementById('ei-unidad').value.trim()||ins.unidad;
+  ins.minimo=parseFloat(document.getElementById('ei-minimo').value)||0;
+  ins.precio=parseFloat(document.getElementById('ei-precio').value)||0;
+  ins.proveedor=document.getElementById('ei-proveedor').value.trim()||'Sin especificar';
+  // Actualizar nombre en recetas si cambió
+  if(nombreNuevo!==nombreAnterior){
+    PRODUCTOS.forEach(p=>p.receta.forEach(r=>{if(r.n===nombreAnterior){r.n=nombreNuevo;r.p=ins.precio}}));
+  }
+  closeModal('m-edit-ins');
+  saveData();renderAlmacen();refreshIngSel();showToast('✓ Insumo actualizado');
+}
+
+function eliminarInsumo(){
+  const idx=parseInt(document.getElementById('ei-idx').value);
+  const ins=ALMACEN[idx];
+  const enUso=PRODUCTOS.some(p=>p.receta.some(r=>r.n===ins.nombre));
+  if(enUso){showToast(`⚠️ "${ins.nombre}" está en recetas activas`);return}
+  ALMACEN.splice(idx,1);
+  closeModal('m-edit-ins');
+  saveData();renderAlmacen();refreshIngSel();showToast(`"${ins.nombre}" eliminado del almacén`);
 }
 
 function buscarPrecioWeb(nombreInsumo){
